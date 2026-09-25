@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>中秋节快乐</title>
+<meta name="description" content="海上生明月，天涯共此时。送您一句会滚动的中秋祝福。">
+<meta property="og:title" content="中秋节快乐">
+<meta property="og:description" content="海上生明月，天涯共此时。送您一句会滚动的中秋祝福。">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0a0a1a">
+<meta name="format-detection" content="telephone=no">
+<style>
+/* ============================================================
+   设计原则：静态可读优先于动效
+   页面上的文字用 HTML 直接写死，JS 只负责给它加滚动效果。
+   JS 不执行、报错、被节流——用户至少还能看到祝福语。
+   ============================================================ */
+
+*{margin:0;padding:0;box-sizing:border-box}
+
+html{color-scheme:dark}
+
+html,body{
+  height:100%;
+  overflow:hidden;
+  overscroll-behavior:none;
+  -webkit-text-size-adjust:100%;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+
+  /* 纯 CSS 的夜空兜底：canvas 一画出来就把它整个盖住，
+     所以 JS 正常时看不出差别；万一 JS 没跑，页面也还是设计过的样子，
+     而不是一片纯黑 */
+  background-color:#05060f;          /* 单独一条，下面那组万一整条失效也不至于变白底 */
+  background-image:
+    radial-gradient(circle 16vw at 74% 19%,
+      #fffdf2 0%, #fdf2c8 45%, #f7e29a 80%, #edcf83 96%, rgba(255,240,190,.25) 100%),
+    radial-gradient(circle 60vw at 74% 19%,
+      rgba(255,240,190,.22) 0%, rgba(255,225,150,.12) 26%, rgba(200,180,255,.05) 52%, rgba(0,0,0,0) 100%),
+    linear-gradient(#05060f 0%, #0b0f2a 30%, #161a44 58%, #241a4a 80%, #3a2450 100%);
+  background-repeat:no-repeat;
+}
+
+/* 用 top/left/width/height 而不是 inset：inset 要 Chrome 87+，
+   微信安卓的 X5 内核、部分国产浏览器都可能低于这个版本。
+   宽度用 100% 而不是 100vw——老 iOS 的 vw 含地址栏区域，会算大 */
+#sky{
+  position:fixed;top:0;left:0;
+  width:100%;height:100%;
+  display:block;
+  z-index:0;
+  touch-action:none;
+  /* 只淡 canvas 这一层：它底下压着上面那组 CSS 夜空，
+     所以哪怕动画被浏览器暂停、冻结在 opacity:0，页面依然完整可读 */
+  -webkit-animation:moonfade .9s ease-out;
+  animation:moonfade .9s ease-out;
+}
+@-webkit-keyframes moonfade{from{opacity:0}to{opacity:1}}
+@keyframes moonfade{from{opacity:0}to{opacity:1}}
+
+#stage{
+  position:fixed;top:0;left:0;
+  width:100%;height:100%;
+  z-index:1;
+  display:-webkit-flex;display:flex;
+  -webkit-flex-direction:column;flex-direction:column;
+  -webkit-align-items:center;align-items:center;
+  -webkit-justify-content:center;justify-content:center;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  pointer-events:none;
+}
+
+/* ---------- 滚动的文字带 ---------- */
+.band{
+  width:100%;
+  overflow:hidden;      /* 裁掉滚出屏幕的部分 */
+  margin-bottom:1.4em;
+}
+
+/*
+ * .track 有两个状态：
+ *   基类      —— JS 没跑 / 量不出文字宽度 / 用户开了减弱动效。居中、字号小一号，
+ *                5 个字稳稳塞得下，一定不会被 .band 裁掉半截
+ *   .rolling  —— JS 成功接管、真的要滚动时加。左对齐 + 大字
+ */
+.track{
+  display:-webkit-flex;display:flex;
+  -webkit-align-items:baseline;align-items:baseline;
+  -webkit-justify-content:center;justify-content:center;
+  letter-spacing:.06em;
+  font-weight:900;
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Heiti SC",
+              "WenQuanYi Micro Hei",sans-serif;
+  line-height:1.15;
+  font-size:13vw;                                 /* 裸值：远古内核也认，不能直接写 clamp */
+  font-size:clamp(28px,13vw,72px);                /* Chrome 79+ */
+}
+.track.rolling{
+  -webkit-justify-content:flex-start;justify-content:flex-start;
+  font-size:15vw;
+  font-size:clamp(36px,15vw,108px);
+  will-change:transform;
+  -webkit-backface-visibility:hidden;backface-visibility:hidden;
+}
+/* svh 是 2022 年的新单位，不认就用上面 clamp 那版；
+   @supports 本身不认时会整块忽略，是天然安全的 */
+@supports (height:1svh){
+  .track.rolling{font-size:clamp(36px,min(15vw,42svh),108px)}
+}
+
+/* 间隔用 padding 而不是 margin：getBoundingClientRect 不含 margin，
+   用 margin 会让周期长度少算一截，接缝处露出可见的缝 */
+.copy{
+  padding-right:.75em;
+  white-space:nowrap;
+  color:#ffd76a;
+  text-shadow:
+    0 0 6px #ffb43a,
+    0 0 18px rgba(255,160,40,.60),
+    0 0 40px rgba(255,120,20,.35);
+}
+
+/* ---------- 副标题 / 署名 ---------- */
+/* font 简写里塞 clamp()/min()/svh 一旦解析失败会整条作废（字重、字体族、
+   行高、字号一起回落），所以这里全拆成独立声明 */
+.sub{
+  font-weight:400;
+  font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+  line-height:1.7;
+  font-size:14px;
+  font-size:clamp(13px,3.6vw,20px);
+  letter-spacing:.16em;
+  text-indent:.16em;            /* 抵消末字多出的字距，视觉才居中 */
+  color:rgba(255,240,200,.62);
+  text-align:center;
+}
+.sign{
+  margin-top:.9em;
+  font-weight:400;
+  font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+  line-height:1.7;
+  font-size:13px;
+  font-size:clamp(12px,3vw,16px);
+  letter-spacing:.1em;
+  text-indent:.1em;
+  color:rgba(255,240,200,.42);
+  text-align:center;
+}
+</style>
+</head>
+<body>
+
+<canvas id="sky"></canvas>
+
+<div id="stage">
+  <div class="band">
+    <!-- 文字直接写在这儿，不靠 JS 生成：JS 挂了这个也还在 -->
+    <div class="track" id="track"><span class="copy">中秋节快乐</span></div>
+  </div>
+  <p class="sub" id="sub">但愿人长久，千里共婵娟</p>
+  <p class="sign" id="sign"></p>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ==================================================================
+   想改内容改这里。text/sub/sign 留空 = 保持 HTML 里写好的那份。
+   （想彻底隐藏副标题或署名，直接删 HTML 里对应的那个标签）
+   ================================================================== */
+var CONFIG = {
+  text:  "",      // 滚动的主文字，留空则用 HTML 里的「中秋节快乐」
+  sub:   "",      // 副标题，留空则用 HTML 里的「但愿人长久，千里共婵娟」
+  sign:  "",      // 署名，例如 "—— 小李 敬上"，留空则不显示
+  speed: 0.6      // 滚动速度。1 是原速，越小越慢；0.6 约 45 像素/秒
+};
+
+var TAU = Math.PI * 2;
+var dpr, W, H;
+
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+/* ---- 老内核的 API 兜底：缺了也不该让整页挂掉 ---- */
+
+var rafFn = window.requestAnimationFrame
+  ? function (cb) { return window.requestAnimationFrame(cb); }
+  : (window.webkitRequestAnimationFrame
+      ? function (cb) { return window.webkitRequestAnimationFrame(cb); }
+      : function (cb) { return setTimeout(function () { cb(Date.now()); }, 16); });
+
+var cafFn = window.cancelAnimationFrame
+  ? function (id) { window.cancelAnimationFrame(id); }
+  : (window.webkitCancelAnimationFrame
+      ? function (id) { window.webkitCancelAnimationFrame(id); }
+      : function (id) { clearTimeout(id); });
+
+function nowMs() {
+  return (window.performance && window.performance.now)
+    ? window.performance.now() : Date.now();
+}
+
+/* 带 -webkit- 前缀地设平移（老安卓 WebView 只认前缀版） */
+function setTranslate(el, x) {
+  var t = 'translate3d(' + x + 'px,0,0)';
+  el.style.webkitTransform = t;
+  el.style.transform = t;
+}
+
+var cv    = document.getElementById('sky');
+var track = document.getElementById('track');
+
+var reduceMotion = !!(window.matchMedia &&
+                      window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+/*
+ * canvas 有可能拿不到 2d 上下文：GPU 被拉进黑名单、内存不足、
+ * 或者单张 canvas 超过 iOS 约 5.19M 像素的上限（12.9 吋平板按 dpr2 算就会超）。
+ * 这时 getContext 返回 null。绝不能让它把异常抛出去——
+ * 退化成「只有 DOM 文字 + CSS 兜底夜空」，祝福语照样看得到。
+ */
+var ctx = (cv && cv.getContext) ? cv.getContext('2d') : null;
+
+/* ==================================================================
+   背景绘制：全部程序化生成，不引入任何外部图片
+   ================================================================== */
+
+/* 夜空渐变。底部刻意不往暖黄走，暖色只留给月亮和文字，焦点才清楚 */
+function drawNight(c, w, h) {
+  var g = c.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0.00, '#05060f');
+  g.addColorStop(0.30, '#0b0f2a');
+  g.addColorStop(0.58, '#161a44');
+  g.addColorStop(0.80, '#241a4a');
+  g.addColorStop(1.00, '#3a2450');
+  c.fillStyle = g;
+  c.fillRect(0, 0, w, h);
+}
+
+/* 一团柔和的光晕。用径向渐变而不是 shadowBlur——后者是软件卷积，手机上直接掉帧 */
+function halo(c, x, y, r, rgb, a) {
+  var g = c.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')');
+  g.addColorStop(1, 'rgba(' + rgb + ',0)');
+  c.fillStyle = g;
+  c.fillRect(x - r, y - r, r * 2, r * 2);
+}
+
+/* 环形山：坐标归一化到月面，用固定表保证每次打开长得一样 */
+var CRATERS = [
+  [-0.34, -0.20, 0.22], [0.10, -0.42, 0.14], [0.38, 0.06, 0.19],
+  [-0.12,  0.34, 0.26], [0.22,  0.44, 0.11], [-0.46, 0.26, 0.10]
+];
+
+function drawMoon(c, w, h) {
+  /* 竖屏按宽度定尺寸；横屏高度小，改按高度收一下并往角上挪，
+     否则月亮会跟中间的文字撞在一起 */
+  var R  = clamp(Math.min(w * 0.16, h * 0.22), 40, 120);
+  var mx = w * (w > h ? 0.82 : 0.74);
+  var my = Math.max(R * 1.15, h * 0.19);
+
+  /* 三层同心光晕，越外越淡越偏冷，读起来像夜气 */
+  halo(c, mx, my, R * 4.5, '200,180,255', 0.06);
+  halo(c, mx, my, R * 2.4, '255,225,150', 0.13);
+  halo(c, mx, my, R * 1.35, '255,240,190', 0.28);
+
+  /* 月体。渐变中心往左上偏，球感就出来了 */
+  var mg = c.createRadialGradient(mx - R * 0.3, my - R * 0.3, R * 0.05, mx, my, R);
+  mg.addColorStop(0.00, '#fffdf2');
+  mg.addColorStop(0.45, '#fdf2c8');
+  mg.addColorStop(0.78, '#f7e29a');
+  mg.addColorStop(1.00, '#edcf83');
+  c.beginPath(); c.arc(mx, my, R, 0, TAU); c.fillStyle = mg; c.fill();
+
+  /* 环形山必须裁在月面内，否则会溢出去 */
+  c.save();
+  c.beginPath(); c.arc(mx, my, R, 0, TAU); c.clip();
+
+  var lw = Math.max(1, R * 0.012);
+  for (var i = 0; i < CRATERS.length; i++) {
+    var nx = CRATERS[i][0], ny = CRATERS[i][1], nr = CRATERS[i][2];
+    var cx = mx + nx * R, cy = my + ny * R, cr = nr * R;
+
+    /* 同一个坑画两次（实心 + 略大一圈的半量），软边缘就出来了，
+       比开 shadowBlur 便宜一个数量级 */
+    c.fillStyle = 'rgba(150,120,70,.15)';
+    c.beginPath(); c.arc(cx, cy, cr, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(150,120,70,.075)';
+    c.beginPath(); c.arc(cx, cy, cr * 1.06, 0, TAU); c.fill();
+
+    /* 左上角那道高光边——立体感基本全靠它 */
+    c.strokeStyle = 'rgba(255,255,255,.18)';
+    c.lineWidth = lw;
+    c.beginPath();
+    c.arc(cx + R * 0.03, cy - R * 0.03, cr, Math.PI * 0.85, Math.PI * 1.85);
+    c.stroke();
+  }
+  c.restore();
+}
+
+/* 星星：小的一律 fillRect，这个数量级下 arc 明显更慢 */
+function makeStars(w, h) {
+  var n = clamp(Math.round(w * h / 5200), 40, 90);
+  var list = [];
+  for (var i = 0; i < n; i++) {
+    list.push({
+      x: Math.random() * w,
+      y: Math.random() * h * 0.92,       /* 底部留空，不跟地平线的紫色打架 */
+      r: 0.5 + Math.random() * 1.3,
+      a: 0.25 + Math.random() * 0.65,
+      cool: Math.random() < 0.10         /* 掺一成冷色，夜空更有层次 */
+    });
+  }
+  return list;
+}
+
+function paintStars(c, stars) {
+  for (var i = 0; i < stars.length; i++) {
+    var s = stars[i];
+    c.globalAlpha = s.a;
+    c.fillStyle = s.cool ? '#cfe0ff' : '#fff8e0';
+    c.fillRect(s.x, s.y, s.r, s.r);
+  }
+  c.globalAlpha = 1;
+}
+
+/* 飘落的桂花。所有粒子共用一个预渲染 sprite，避免逐帧画渐变 */
+function makeSprite() {
+  var S = 32;
+  var c2 = document.createElement('canvas');
+  c2.width = c2.height = S;
+  var c = (c2.getContext && c2.getContext('2d')) || null;
+  if (!c) return null;
+  var g = c.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0.00, 'rgba(255,242,200,.95)');
+  g.addColorStop(0.40, 'rgba(255,217,138,.55)');
+  g.addColorStop(1.00, 'rgba(255,190,90,0)');
+  c.fillStyle = g;
+  c.fillRect(0, 0, S, S);
+  return c2;
+}
+
+function makeParticles(w, h) {
+  var n = Math.min(36, Math.round(w / 12));   /* 硬顶，横屏平板上不然会堆到几百个 */
+  var list = [];
+  for (var i = 0; i < n; i++) {
+    list.push({
+      x0: Math.random() * w,
+      y: Math.random() * h,
+      r: 1.5 + Math.random() * 2,
+      vy: 12 + Math.random() * 18,
+      amp: 6 + Math.random() * 12,
+      freq: 0.3 + Math.random() * 0.4,
+      phase: Math.random() * TAU,
+      alpha: 0.25 + Math.random() * 0.45,
+      rot: Math.random() * TAU,
+      vr: (Math.random() - 0.5) * 1.2
+    });
+  }
+  return list;
+}
+
+/* ==================================================================
+   滚动：周期性重复 + 取模平移
+   平移整整一个周期后画面逐像素相同，所以取模那一刻视觉是连续的
+   —— 无缝是构造出来的，不是修出来的
+   ================================================================== */
+
+var P = 0, offset = 0, v = 0;   /* P = 一个周期的宽度 */
+
+function buildTrack() {
+  /*
+   * 复用 HTML 里已经存在的那份文字，不推倒重来。
+   * 原来的写法是第一句就 track.textContent = ''，那样一旦后面任何一步
+   * 出错，轨道就空了——等于把刚修好的"没内容"故障原样做回来。
+   */
+  var one = track.firstElementChild;
+  if (!one) {
+    one = document.createElement('span');
+    one.className = 'copy';
+    track.appendChild(one);
+  }
+  if (CONFIG.text) one.textContent = CONFIG.text;   /* 留空则保持 HTML 里的文案 */
+
+  /* 清掉上一轮克隆出来的副本，否则每次 resize 都会越堆越多 */
+  while (track.lastElementChild !== one) track.removeChild(track.lastElementChild);
+
+  if (reduceMotion) {
+    /* 用户开了「减弱动态效果」：保持静态居中，不加 .rolling */
+    track.className = 'track';
+    P = 0; v = 0;
+    setTranslate(track, 0);
+    return;
+  }
+
+  track.className = 'track rolling';
+
+  /* 用 getBoundingClientRect 而不是 offsetWidth：后者取整，
+     多份副本累加后取模的误差会漂移成一道肉眼可见的缝 */
+  var oneW = one.getBoundingClientRect().width;
+  if (!(oneW > 0)) {
+    /* 量不出来就退回静态居中，别留一条滚不动的空轨道 */
+    track.className = 'track';
+    P = 0; v = 0;
+    return;
+  }
+
+  P = oneW;
+  var need = Math.ceil(W / P) + 1;    /* 少一份，屏幕右侧在循环末段会露白 */
+  for (var i = 1; i < need; i++) track.appendChild(one.cloneNode(true));
+
+  /* 让某一份的开头正好停在屏幕右边缘，第一眼看到的是「驶入」而不是已经杵在屏上 */
+  offset = (P - (W % P)) % P;
+  /* 速度跟着屏宽走，大屏字也大，观感才一致；再乘一个可调的系数 */
+  v = clamp(W * 0.19 * (CONFIG.speed || 1), 30, 150);
+}
+
+/* ==================================================================
+   尺寸变化时重建。不在 resize 回调里直接做重活，只置个标志，
+   等下一帧在 rAF 里统一处理，避开 resize 事件风暴
+   ================================================================== */
+
+var bg = null, sprite = null, statics = [], twinkles = [], parts = [];
+var dirty = true;
+var sizeRetry = 0;      /* 量不到尺寸时的重试计数，防止无限循环 */
+
+function rebuild() {
+  var box = cv.getBoundingClientRect();
+  W = box.width;
+  H = box.height;
+
+  if (!(W > 0 && H > 0)) {
+    /*
+     * 布局还没落定（或 canvas 不可见）。先退回视口尺寸保证有东西可画，
+     * 但绝不能就此把 dirty 清掉——那会让真尺寸永远量不到。
+     */
+    W = window.innerWidth  || document.documentElement.clientWidth  || 320;
+    H = window.innerHeight || document.documentElement.clientHeight || 480;
+    if (sizeRetry++ < 120) dirty = true;
+  } else {
+    sizeRetry = 0;
+  }
+
+  /* 文字部分先做：它不依赖 canvas，是优先级最高、最不能失败的东西 */
+  buildTrack();
+
+  if (!ctx) return;      /* 没有 2d 上下文就只留 DOM 文字，别往下抛异常 */
+
+  dpr = Math.min(window.devicePixelRatio || 1, 2);   /* 上限 2，手机上收益远不值那个填充率 */
+  cv.width  = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);            /* 之后一律按 CSS 像素思考 */
+
+  var all = makeStars(W, H);
+  /* 只有最亮的十几颗逐帧闪，其余烘焙进静态层 */
+  all.sort(function (a, b) { return b.r - a.r; });
+  twinkles = all.slice(0, 12);
+  statics  = all.slice(12);
+  for (var i = 0; i < twinkles.length; i++) {
+    twinkles[i].sp = 0.6 + Math.random() * 1.4;
+    twinkles[i].ph = Math.random() * TAU;
+  }
+
+  parts = makeParticles(W, H);
+  if (!sprite) sprite = makeSprite();
+
+  /* 夜空 + 月亮 + 光晕 + 环形山 + 静态星星，一次性烘焙成一张图 */
+  bg = document.createElement('canvas');
+  bg.width  = Math.round(W * dpr);
+  bg.height = Math.round(H * dpr);
+  var b = (bg.getContext && bg.getContext('2d')) || null;
+  if (!b) { bg = null; return; }     /* 烘焙层也拿不到上下文就放弃背景，文字照旧 */
+  b.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawNight(b, W, H);
+  drawMoon(b, W, H);
+  paintStars(b, statics);
+}
+
+/* ==================================================================
+   主循环：canvas 和文字平移共用一个 rAF，避免两套时钟漂移
+   ================================================================== */
+
+var last = 0, clock = 0, raf = 0;
+
+function frame(t) {
+  /*
+   * 第一件事就排下一帧。原来的写法把 requestAnimationFrame 放在函数最后一行，
+   * 于是函数体内任何一次异常都会让循环永久断链——页面就停在那一帧上。
+   * 提到最前面，异常最多让这一帧画歪，不会让整个动画死掉。
+   */
+  raf = rafFn(frame);
+
+  var dt = (t - last) / 1000;
+  last = t;
+  if (!(dt > 0)) dt = 0;
+  if (dt > 0.05) dt = 0.05;      /* 从后台切回来时别让文字瞬移一段、粒子集体飞出屏 */
+  clock += dt;
+
+  if (dirty) { dirty = false; rebuild(); }
+
+  /* --- 文字：优先更新，不依赖 canvas --- */
+  if (!reduceMotion && P > 0) {
+    offset = (offset + v * dt) % P;
+    setTranslate(track, -offset);
+  }
+
+  if (!ctx || !bg) return;       /* 背景画不了就算了，文字已经在了 */
+
+  /* --- 背景 --- */
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.drawImage(bg, 0, 0, W, H);
+
+  var i, s, p;
+  for (i = 0; i < twinkles.length; i++) {
+    s = twinkles[i];
+    ctx.globalAlpha = s.a * (0.55 + 0.45 * Math.sin(clock * s.sp + s.ph));
+    ctx.fillStyle = s.cool ? '#cfe0ff' : '#fff8e0';
+    ctx.fillRect(s.x, s.y, s.r, s.r);
+  }
+  ctx.globalAlpha = 1;
+
+  if (sprite) {
+    for (i = 0; i < parts.length; i++) {
+      p = parts[i];
+      p.y += p.vy * dt;
+      if (p.y > H + 20) { p.y = -20; p.x0 = Math.random() * W; }
+      p.rot += p.vr * dt;
+
+      var px = p.x0 + p.amp * Math.sin(TAU * p.freq * clock + p.phase);
+      ctx.save();
+      ctx.translate(px, p.y);
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = p.alpha;
+      ctx.drawImage(sprite, -p.r * 2, -p.r * 2, p.r * 4, p.r * 4);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ==================================================================
+   启动
+   ================================================================== */
+
+function start() {
+  if (!raf) { last = nowMs(); raf = rafFn(frame); }
+}
+function stop() {
+  if (raf) { cafFn(raf); raf = 0; }
+}
+
+/*
+ * 顺序是刻意的：先处理 DOM 文字，再碰 canvas。
+ * 万一某一步抛异常，前面已经完成的、最要紧的部分不会跟着回滚。
+ * 外面再包一层 try——真出了事，HTML 里写死的文字照样在。
+ */
+try {
+  if (CONFIG.sub)  document.getElementById('sub').textContent  = CONFIG.sub;
+  if (CONFIG.sign) document.getElementById('sign').textContent = CONFIG.sign;
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { dirty = true; }).observe(cv);
+  } else {
+    window.addEventListener('resize', function () { dirty = true; });
+  }
+  window.addEventListener('orientationchange', function () {
+    setTimeout(function () { dirty = true; }, 150);   /* 部分机型上事件早于尺寸落定 */
+  });
+
+  /* 切到后台就停，回来重新计时，既省电也避免累计一大段 dt */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stop(); else start();
+  });
+  window.addEventListener('pageshow', function () { dirty = true; start(); });
+
+  start();
+} catch (e) {
+  /* 什么都不做。HTML 里那段文字本来就在页面上，已经是可读状态了 */
+}
+
+})();
+</script>
+</body>
+</html>
